@@ -36,7 +36,7 @@ setup(
     author_email="lukasz@langa.pl",
     url="https://github.com/ambv/black",
     license="MIT",
-    py_modules=["black"],
+    py_modules=["black", "blackd"],
     packages=["blib2to3", "blib2to3.pgen2"],
     package_data={"blib2to3": ["*.txt"]},
     python_requires=">=3.6",
@@ -55,5 +55,5 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Topic :: Software Development :: Quality Assurance",
     ],
-    entry_points={"console_scripts": ["black=black:main"]},
+    entry_points={"console_scripts": ["black=black:main", "blackd=blackd:main"]},
 )

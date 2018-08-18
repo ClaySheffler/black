@@ -856,7 +856,6 @@ More details can be found in [CONTRIBUTING](CONTRIBUTING.md).
 * note: the Vim plugin stopped registering ``,=`` as a default chord as it turned out
   to be a bad idea (#415)
 
-
 ### 18.6b4
 
 * hotfix: don't freeze when multiple comments directly precede `# fmt: off` (#371)

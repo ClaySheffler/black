@@ -2,14 +2,24 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from functools import partial
+from functools import partial, wraps
 from io import BytesIO, TextIOWrapper
 import os
 from pathlib import Path
 import re
 import sys
 from tempfile import TemporaryDirectory
-from typing import Any, BinaryIO, Generator, List, Tuple, Iterator
+from typing import (
+    Any,
+    BinaryIO,
+    Callable,
+    Coroutine,
+    Generator,
+    List,
+    Tuple,
+    Iterator,
+    TypeVar,
+)
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -17,6 +27,7 @@ from click import unstyle
 from click.testing import CliRunner
 
 import black
+import blackd
 
 
 ll = 88
@@ -25,6 +36,8 @@ fs = partial(black.format_str, line_length=ll)
 THIS_FILE = Path(__file__)
 THIS_DIR = THIS_FILE.parent
 EMPTY_LINE = "# EMPTY LINE WITH WHITESPACE" + " (this comment will be removed)"
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 def dump_to_stderr(*output: str) -> str:
@@ -77,6 +90,32 @@ def event_loop(close: bool) -> Iterator[None]:
         policy.set_event_loop(old_loop)
         if close:
             loop.close()
+
+
+def async_test(f: Callable[..., Coroutine[Any, None, R]]) -> Callable[..., None]:
+    @event_loop(close=True)
+    @wraps(f)
+    def wrapper(*args: Any, **kwargs: Any) -> None:
+        asyncio.get_event_loop().run_until_complete(f(*args, **kwargs))
+
+    return wrapper
+
+
+def mock_reader_writer(buf: BytesIO) -> Tuple[MagicMock, MagicMock]:
+    reader = MagicMock()
+
+    def mock_read() -> "asyncio.Future[bytes]":
+        fut: "asyncio.Future[bytes]" = asyncio.Future()
+        fut.set_result(buf.read())
+        return fut
+
+    reader.read.side_effect = mock_read
+    writer = MagicMock()
+    fut: "asyncio.Future[None]" = asyncio.Future()
+    fut.set_result(None)
+    writer.drain.return_value = fut
+    writer.get_extra_info.return_value = "Mock peer"
+    return reader, writer
 
 
 class BlackRunner(CliRunner):
@@ -1253,6 +1292,37 @@ class BlackTestCase(unittest.TestCase):
                 _unicodefun._verify_python3_env()
             except RuntimeError as re:
                 self.fail(f"`patch_click()` failed, exception still raised: {re}")
+
+    @async_test
+    async def test_blackd_request_needs_formatting(self) -> None:
+        reader, writer = mock_reader_writer(BytesIO(b"print('hello world')"))
+        await blackd.new_req(
+            reader, writer, line_length=88, fast=True, mode=black.FileMode.PYTHON36
+        )
+        writer.write.assert_called_once_with(b'OK\nprint("hello world")\n')
+
+    @async_test
+    async def test_blackd_request_no_change(self) -> None:
+        reader, writer = mock_reader_writer(BytesIO(b'print("hello world")\n'))
+        await blackd.new_req(
+            reader, writer, line_length=88, fast=True, mode=black.FileMode.PYTHON36
+        )
+        writer.write.assert_called_once_with(b"OK NO CHANGE\n")
+
+    @async_test
+    async def test_blackd_request_syntax_error(self) -> None:
+        reader, writer = mock_reader_writer(BytesIO(b"what even (is this"))
+        await blackd.new_req(
+            reader, writer, line_length=88, fast=True, mode=black.FileMode.PYTHON36
+        )
+        writer.write.assert_called_once()
+        _, args, _ = writer.write.mock_calls[0]
+        actual_arg = args[0]
+        expected = b"ERROR\nCannot parse"
+        self.assertTrue(
+            actual_arg.startswith(expected),
+            msg=fr"expected {repr(expected)}, got {repr(actual_arg)}",
+        )
 
 
 if __name__ == "__main__":
