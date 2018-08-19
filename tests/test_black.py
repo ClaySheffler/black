@@ -1324,6 +1324,14 @@ class BlackTestCase(unittest.TestCase):
             msg=fr"expected {repr(expected)}, got {repr(actual_arg)}",
         )
 
+    def test_blackd_main(self) -> None:
+        loop = asyncio.get_event_loop()
+        loop.call_later(0.5, blackd._stop_signal.set)
+        result = CliRunner().invoke(blackd.main, [])
+        if result.exception is not None:
+            raise result.exception
+        self.assertEqual(result.exit_code, 0)
+
 
 if __name__ == "__main__":
     unittest.main(module="test_black")

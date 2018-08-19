@@ -5,6 +5,9 @@ from typing import Optional
 import black
 import click
 
+# This is used internally by tests to shut down the server prematurely
+_stop_signal = asyncio.Event()
+
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option(
@@ -74,16 +77,18 @@ def main(
     )
     loop = asyncio.get_event_loop()
     req_handler = partial(new_req, line_length=line_length, mode=mode, fast=fast)
+    server = None
     try:
         server = loop.run_until_complete(
             asyncio.start_server(req_handler, host=bind_host, port=bind_port)
         )
         ver = black.__version__
         black.out(f"blackd version {ver} listening on {bind_host} port {bind_port}")
-        loop.run_forever()
+        loop.run_until_complete(_stop_signal.wait())
     finally:
-        server.close()
-        loop.run_until_complete(server.wait_closed())
+        if server is not None:
+            server.close()
+            loop.run_until_complete(server.wait_closed())
 
 
 async def new_req(
